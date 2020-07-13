@@ -1,0 +1,250 @@
+Parameters:
+  importedEdRStackVPC:
+    Type: String
+    Default: edrVpcExported
+
+  importedEdrEmptySubnet1:
+    Type: String
+    Default: edrEmptySubnet1Exported
+
+  importedEdrEmptySubnet2:
+    Type: String
+    Default: edrEmptySubnet2Exported
+
+  importedEdrDmzSubnet1:
+    Type: String
+    Default: edrDmzSubnetExported1
+
+  importedEdrDmzSubnet2:
+    Type: String
+    Default: edrDmzSubnetExported2
+
+  importedEdrWebSubnet1:
+    Type: String
+    Default: edrWebSubnet1Exported
+
+  importedEdrWebSubnet2:
+    Type: String
+    Default: edrWebSubnet2Exported
+
+  importedEdrDbsSubnet1:
+    Type: String
+    Default: exportEdrDbsSubnet1
+
+  importedEdrDbsSubnet2:
+    Type: String
+    Default: exportEdrDbsSubnet2
+
+  importedSecurityGroupDMZ:
+    Type: String
+    Default: edrDMZsgExported
+
+  importedSecurityGroupWeb:
+    Type: String
+    Default: edrWebsgExported
+
+  importedSecurityGroupDbs:
+    Type: String
+    Default: edrDbssgExported
+
+Resources:
+  Bastion01:
+    Type: AWS::EC2::Instance
+    Properties:
+      IamInstanceProfile: EdR_SSM_Role
+      AvailabilityZone: !Join ['', [!Ref "AWS::Region", "a"]]
+      KeyName: EdR_us-east-1
+      ImageId: ami-062f7200baf2fa504
+      InstanceType: t2.micro
+      SecurityGroupIds:
+        - Fn::ImportValue: !Ref importedSecurityGroupDMZ
+      SubnetId:
+        Fn::ImportValue: !Ref importedEdrDmzSubnet1
+      Tags:
+        - Key: Name
+          Value: EdR-Bastion-1
+
+  Bastion02:
+    Type: AWS::EC2::Instance
+    Properties:
+      IamInstanceProfile: EdR_SSM_Role
+      AvailabilityZone: !Join ['', [!Ref "AWS::Region", "b"]]
+      KeyName: EdR_us-east-1
+      ImageId: ami-062f7200baf2fa504
+      InstanceType: t2.micro
+      SecurityGroupIds:
+        - Fn::ImportValue: !Ref importedSecurityGroupDMZ
+      SubnetId:
+        Fn::ImportValue: !Ref importedEdrDmzSubnet2
+      Tags:
+        - Key: Name
+          Value: EdR-Bastion-2
+
+  WebServer1:
+    Type: AWS::EC2::Instance
+    Properties:
+      IamInstanceProfile: EdR_SSM_Role
+      AvailabilityZone: !Join ['', [!Ref "AWS::Region", "a"]]
+      KeyName: EdR_us-east-1
+      ImageId: ami-062f7200baf2fa504
+      InstanceType: t2.micro
+      SecurityGroupIds:
+        - Fn::ImportValue: !Ref importedSecurityGroupWeb
+      SubnetId:
+        Fn::ImportValue: !Ref importedEdrWebSubnet1
+      Tags:
+        - Key: Name
+          Value: EdR-WebServer-1
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash -xe
+            # Get the latest CloudFormation package
+            yum update -y aws-cfn-bootstrap
+            # Start cfn-init
+            /opt/aws/bin/cfn-init -s ${AWS::StackId} -r WebServer1 --region ${AWS::Region} || error_exit 'Failed to run cfn-init'
+            /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackId} --resource EdRWaitCondition --region ${AWS::Region}
+
+    Metadata:
+      Comment: Install a simple Apache HTTP page
+      AWS::CloudFormation::Init:
+        config:
+          packages:
+            yum:
+              httpd: []
+          files:
+            "/var/www/html/index.html":
+              content: |
+                <html>
+                <body bgcolor='red'>
+                <font face="Helvetica" size=3>
+                Hello World from Webserver 1.
+                This was created using cfn-init.
+                </font>
+                </body>
+                </html>
+              mode: '000644'
+          commands:
+           showHostname:
+              command: 'echo -ne "\n\n$(hostname -f) >> /var/www/html/index.html"'
+          services:
+            sysvinit:
+              httpd:
+                enabled: 'true'
+                ensureRunning: 'true'
+
+  
+  WebServer2:
+    Type: AWS::EC2::Instance
+    Properties:
+      IamInstanceProfile: EdR_SSM_Role
+      AvailabilityZone: !Join ['', [!Ref "AWS::Region", "b"]]
+      KeyName: EdR_us-east-1
+      ImageId: ami-062f7200baf2fa504
+      InstanceType: t2.micro
+      SecurityGroupIds:
+        - Fn::ImportValue: !Ref importedSecurityGroupWeb
+      SubnetId:
+        Fn::ImportValue: !Ref importedEdrWebSubnet2
+      Tags:
+        - Key: Name
+          Value: EdR-WebServer-2
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash -xe
+            # Get the latest CloudFormation package
+            yum update -y aws-cfn-bootstrap
+            # Start cfn-init
+            /opt/aws/bin/cfn-init -s ${AWS::StackId} -r WebServer2 --region ${AWS::Region} || error_exit 'Failed to run cfn-init'
+            /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackId} --resource EdRWaitCondition --region ${AWS::Region}
+
+    Metadata:
+      Comment: Install a simple Apache HTTP page
+      AWS::CloudFormation::Init:
+        config:
+          packages:
+            yum:
+              httpd: []
+          files:
+            "/var/www/html/index.html":
+              content: |
+                <html>
+                <body bgcolor='green'>
+                <font face="Helvetica" size=3>
+                Hello World from Webserver 2.
+                This was created using cfn-init.
+                </font>
+                </body>
+                </html>
+              mode: '000644'
+          commands:
+           showHostname:
+              command: 'echo -ne "\n\n$(hostname -f) >> /var/www/html/index.html"'
+          services:
+            sysvinit:
+              httpd:
+                enabled: 'true'
+                ensureRunning: 'true'
+
+  EdRWaitCondition:
+    Type: AWS::CloudFormation::WaitCondition
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT2M
+        Count: 2
+
+  ALB1:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Type: application
+      IpAddressType: ipv4
+      Name: EdR-ALB-01
+      Scheme: internet-facing
+      SecurityGroups:
+        - Fn::ImportValue: !Ref importedSecurityGroupDMZ
+      Subnets:
+        - Fn::ImportValue: !Ref importedEdrEmptySubnet1
+        - Fn::ImportValue: !Ref importedEdrEmptySubnet2
+      Tags:
+        - Key: Name
+          Value: EdR-ALB-01
+
+  ALB01TargetGroup01:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckEnabled: True
+      HealthCheckIntervalSeconds: 5
+      HealthCheckPath: /index.html
+      HealthCheckPort: 80
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 2
+      HealthyThresholdCount: 2
+      Name: EdR-TG-01
+      Port: 80
+      Protocol: HTTP
+      Tags:
+        - Key: Name
+          Value: EdR-TG-01
+      Targets:
+        - Id: !Ref WebServer1
+        - Id: !Ref WebServer2
+      TargetType: instance
+      UnhealthyThresholdCount: 5
+      VpcId:
+        Fn::ImportValue: !Ref importedEdRStackVPC
+
+  ALB01Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALB01TargetGroup01
+      LoadBalancerArn: !Ref ALB1
+      Port: 80
+      Protocol: HTTP
+
+Outputs:
+  LoadBalancerDNSName:
+    Description: The DNSName of the load balancer
+    Value: !GetAtt ALB1.DNSName   

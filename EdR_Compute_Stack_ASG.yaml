@@ -1,0 +1,120 @@
+Parameters:
+  importedEdRStackVPC:
+    Type: String
+    Default: edrVpcExported
+
+  importedEdrEmptySubnet1:
+    Type: String
+    Default: edrEmptySubnet1Exported
+
+  importedEdrEmptySubnet2:
+    Type: String
+    Default: edrEmptySubnet2Exported
+
+  importedEdrDmzSubnet1:
+    Type: String
+    Default: edrDmzSubnetExported1
+
+  importedEdrDmzSubnet2:
+    Type: String
+    Default: edrDmzSubnetExported2
+
+  importedEdrWebSubnet1:
+    Type: String
+    Default: edrWebSubnet1Exported
+
+  importedEdrWebSubnet2:
+    Type: String
+    Default: edrWebSubnet2Exported
+
+  importedEdrDbsSubnet1:
+    Type: String
+    Default: exportEdrDbsSubnet1
+
+  importedEdrDbsSubnet2:
+    Type: String
+    Default: exportEdrDbsSubnet2
+
+  importedSecurityGroupDMZ:
+    Type: String
+    Default: edrDMZsgExported
+
+  importedSecurityGroupWeb:
+    Type: String
+    Default: edrWebsgExported
+
+  importedSecurityGroupDbs:
+    Type: String
+    Default: edrDbssgExported
+
+  LatestLinuxAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+
+Resources:
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      IamInstanceProfile: !Ref EdRec2Role 
+      VPCZoneIdentifier:
+        - Fn::ImportValue: !Ref importedEdrWebSubnet1
+        - Fn::ImportValue: !Ref importedEdrWebSubnet2
+      LaunchConfigurationName: 
+        Ref: EdRLaunchConfig
+      DesiredCapacity: '3'
+      MinSize: '1'
+      MaxSize: '4'
+    CreationPolicy:
+      ResourceSignal:
+        Count: '3'
+        Timeout: PT5M
+
+  EdRLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      KeyName: EdR_us-east-1
+      SecurityGroups:
+        - Fn::ImportValue: !Ref importedSecurityGroupWeb
+      LaunchConfigurationName: EdRLaunchConfig
+      InstanceType: t2.micro
+      UserData:
+        "Fn::Base64":
+          !Sub |
+            #!/bin/bash -xe
+            # Get the latest CloudFormation package
+            yum update -y aws-cfn-bootstrap
+
+            # Start cfn-init
+            /opt/aws/bin/cfn-init -s ${AWS::StackId} -r WebServer1 --region ${AWS::Region} || error_exit 'Failed to run cfn-init'
+            #/opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackId} --resource EdRWaitCondition --region ${AWS::Region}
+
+    Metadata:
+      Comment: Install a simple Apache HTTP page
+      AWS::CloudFormation::Init:
+        config:
+          packages:
+            yum:
+              httpd: []
+          files:
+            "/var/www/html/index.html":
+              content: |
+                <html>
+                <body bgcolor='green'>
+                <font face="Helvetica" size=3>
+                Hello World from Webserver 2.
+                This was created using cfn-init.
+                </font>
+                </body>
+                </html>
+              mode: '000644'
+          commands:
+           showHostname:
+              command: 'echo -ne "\n\n$(hostname -f) >> /var/www/html/index.html"'
+          services:
+            sysvinit:
+              httpd:
+                enabled: 'true'
+                ensureRunning: 'true'
+
+
+

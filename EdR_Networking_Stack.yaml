@@ -1,0 +1,453 @@
+Resources:
+
+# Define the VPC
+  edrVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 192.168.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value:  !Join ['', ["EdR | ", !Ref "AWS::Region", " | 192.168.0.0/16"]]
+
+# Define the first Empty (Public) Subnet which is needed to allow the LB to route traffic to the private web instances
+  edrEmptySubnet1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref edrVpc
+      AvailabilityZone: !Join ['', [!Ref "AWS::Region", "a"]]
+      CidrBlock: 192.168.110.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value:  !Join ['', ["EdR | ", !Ref "AWS::Region", "a ", "| 192.168.110.0/24", " | EMP - 1"]]
+
+# Define the second Empty (Public) Subnet which is needed to allow the LB to route traffic to the private web instances
+  edrEmptySubnet2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref edrVpc
+      AvailabilityZone: !Join ['', [!Ref "AWS::Region", "b"]]
+      CidrBlock: 192.168.220.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value:  !Join ['', ["EdR | ", !Ref "AWS::Region", "b ", "| 192.168.220.0/24", " | EMP - 2"]]
+
+# Define the first DMZ (Public) Subnet for Load Balancers and the Bastion Server
+  edrDmzSubnet1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref edrVpc
+      AvailabilityZone: !Join ['', [!Ref "AWS::Region", "a"]]
+      CidrBlock: 192.168.11.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value:  !Join ['', ["EdR | ", !Ref "AWS::Region", "a ", "| 192.168.11.0/24", " | DMZ - 1"]]
+
+# Define the second DMZ (Public) Subnet for Load Balancers and the Bastion Server
+  edrDmzSubnet2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref edrVpc
+      AvailabilityZone: !Join ['', [!Ref "AWS::Region", "b"]]
+      CidrBlock: 192.168.22.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value:  !Join ['', ["EdR | ", !Ref "AWS::Region", "b ", "| 192.168.22.0/24", " | DMZ - 2"]]
+
+# Define the first Private Subnet for Web Servers
+  edrWebSubnet1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref edrVpc
+      AvailabilityZone: !Join ['', [!Ref "AWS::Region", "a"]]
+      CidrBlock: 192.168.33.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value:  !Join ['', ["EdR | ", !Ref "AWS::Region", "a ", "| 192.168.33.0/24", " | WEB - 1"]]
+
+# Define the second Private Subnet for Web Servers
+  edrWebSubnet2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref edrVpc
+      AvailabilityZone: !Join ['', [!Ref "AWS::Region", "b"]]
+      CidrBlock: 192.168.44.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value:  !Join ['', ["EdR | ", !Ref "AWS::Region", "b ", "| 192.168.44.0/24", " | WEB - 2"]]
+
+# Define the first Private Subnet for Databases
+  edrDbsSubnet1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref edrVpc
+      AvailabilityZone: !Join ['', [!Ref "AWS::Region", "a"]]
+      CidrBlock: 192.168.55.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value:  !Join ['', ["EdR | ", !Ref "AWS::Region", "a ", "| 192.168.55.0/24", " | DBS - 1"]]
+
+# Define the second Private Subnet for Databases
+  edrDbsSubnet2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref edrVpc
+      AvailabilityZone: !Join ['', [!Ref "AWS::Region", "b"]]
+      CidrBlock: 192.168.66.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value:  !Join ['', ["EdR | ", !Ref "AWS::Region", "b ", "| 192.168.66.0/24", " | DBS - 2"]]
+
+#Define the Internet Gateway (for the Public Subnets)
+  edrInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: Name
+        Value: edrInternetGateway
+
+#Attach the Internet Gateway to the VPC
+  edrInternetGatewayAttach:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties: 
+      InternetGatewayId: !Ref edrInternetGateway
+      VpcId: !Ref edrVpc
+
+#Create an elastic IP for the first NAT Gateway
+  edrElasticIP1:
+    Type: AWS::EC2::EIP
+    Properties: 
+      Tags: 
+       - Key: Name
+         Value: edrElasticIP1
+
+#Create an elastic IP for the second NAT Gateway
+  edrElasticIP2:
+    Type: AWS::EC2::EIP
+    Properties: 
+      Tags: 
+       - Key: Name
+         Value: edrElasticIP2
+
+#Create 2 NAT Gateways to give the Private Subnets outbound Internet Access
+  edrNatGateway1:
+    Type: AWS::EC2::NatGateway
+    Properties: 
+      AllocationId:
+        Fn::GetAtt:
+        - edrElasticIP1
+        - AllocationId
+      SubnetId: !Ref edrDmzSubnet1
+      Tags: 
+        - Key: Name
+          Value: edrNatGateway1
+
+  edrNatGateway2:
+    Type: AWS::EC2::NatGateway
+    Properties: 
+      AllocationId:
+        Fn::GetAtt:
+          - edrElasticIP2
+          - AllocationId
+      SubnetId: !Ref edrDmzSubnet2
+      Tags: 
+        - Key: Name
+          Value: edrNatGateway2
+
+#Create a Route Table for the (DMZ) Public Subnets
+  edrDmzSubnetsRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:  
+        Ref: edrVpc
+      Tags:
+      - Key: Name
+        Value: Route Table for EdR (DMZ) Public Subnets
+
+#Create a Route Table for the Private Subnets in AZ-A
+  edrPrivateSubnetsRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:  
+        Ref: edrVpc
+      Tags:
+      - Key: Name
+        Value: Route Table for all EdR Private Subnets in AZ-A
+
+#Create a Route Table for the Private Subnets in AZ-B
+  edrPrivateSubnetsRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:  
+        Ref: edrVpc
+      Tags:
+      - Key: Name
+        Value: Route Table for all EdR Private Subnets in AZ-B
+
+#Add a route to the internet for the DMZ and Empty (Public) Subnets
+  edrIgwRoute:
+    Type: AWS::EC2::Route
+    DependsOn: edrInternetGateway
+    Properties:
+       RouteTableId:
+         Ref: edrDmzSubnetsRouteTable
+       DestinationCidrBlock: 0.0.0.0/0
+       GatewayId:
+         Ref: edrInternetGateway
+
+#Add a route to the internet for the All EdR Private Subnets in AZ-A
+  edrNgwRoute1:
+    Type: AWS::EC2::Route
+    DependsOn: edrNatGateway1
+    Properties:
+       RouteTableId:
+         Ref: edrPrivateSubnetsRouteTable1
+       DestinationCidrBlock: 0.0.0.0/0
+       NatGatewayId:
+         Ref: edrNatGateway1
+
+#Add a route to the internet for the All EdR Private Subnets in AZ-B
+  edrNgwRoute2:
+    Type: AWS::EC2::Route
+    DependsOn: edrNatGateway2
+    Properties:
+       RouteTableId:
+         Ref: edrPrivateSubnetsRouteTable2
+       DestinationCidrBlock: 0.0.0.0/0
+       NatGatewayId:
+         Ref: edrNatGateway2
+
+#Associate the DMZ & Empty (Public) Subnets to their route table
+  edrDmzSubnetsRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        Ref: edrDmzSubnet1
+      RouteTableId:
+        Ref: edrDmzSubnetsRouteTable
+
+  edrDmzSubnetsRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        Ref: edrDmzSubnet2
+      RouteTableId:
+        Ref: edrDmzSubnetsRouteTable
+
+  edrDmzSubnetsRouteTableAssociation3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        Ref: edrEmptySubnet1
+      RouteTableId:
+        Ref: edrDmzSubnetsRouteTable
+
+  edrDmzSubnetsRouteTableAssociation4:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        Ref: edrEmptySubnet2
+      RouteTableId:
+        Ref: edrDmzSubnetsRouteTable
+
+#Associate the Web (Private) Subnets to the Private (NAT) route table
+  edrWebSubnetRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        Ref: edrWebSubnet1
+      RouteTableId:
+        Ref: edrPrivateSubnetsRouteTable1
+
+  edrWebSubnetRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        Ref: edrWebSubnet2
+      RouteTableId:
+        Ref: edrPrivateSubnetsRouteTable2
+
+#Associate the Dbs (Private) Subnets to the Private (NAT) route table
+  edrDbsSubnetRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        Ref: edrDbsSubnet1
+      RouteTableId:
+        Ref: edrPrivateSubnetsRouteTable1
+
+  edrDbsSubnetRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        Ref: edrDbsSubnet2
+      RouteTableId:
+        Ref: edrPrivateSubnetsRouteTable2
+
+#Create a security group for the DMZ (Public) Subnet
+  edrDmzSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: EdR-DMZ-SG
+      GroupDescription: Allow access to Bastion Server and Load Balancer from TLN Home
+      VpcId:
+        Ref: edrVpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          ToPort: 22
+          FromPort: 22
+          CidrIp: 82.22.123.140/32
+        - IpProtocol: tcp
+          ToPort: 80
+          FromPort: 80
+          CidrIp: 82.22.123.140/32
+        - IpProtocol: tcp
+          ToPort: 443
+          FromPort: 443
+          CidrIp: 82.22.123.140/32
+
+#Create a security group for the Web (Private) Subnet
+  edrWebSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: EdR-Web-SG
+      GroupDescription: Allow access to Web Servers on Ports 80 and 443 from the DMZ Security Group
+      VpcId:
+        Ref: edrVpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          ToPort: 22
+          FromPort: 22
+          SourceSecurityGroupId: !GetAtt edrDmzSecurityGroup.GroupId
+        - IpProtocol: tcp
+          ToPort: 80
+          FromPort: 80
+          SourceSecurityGroupId: !GetAtt edrDmzSecurityGroup.GroupId
+        - IpProtocol: tcp
+          ToPort: 443
+          FromPort: 443
+          SourceSecurityGroupId: !GetAtt edrDmzSecurityGroup.GroupId
+
+#Create a security group for the Dbs (Private) Subnet
+  edrDbsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: EdR-Dbs-SG
+      GroupDescription: Allow access to Database Servers on Port 3306 from the Web Security Group
+      VpcId:
+        Ref: edrVpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          ToPort: 3306
+          FromPort: 3306
+          SourceSecurityGroupId: !GetAtt edrWebSecurityGroup.GroupId
+
+Outputs:
+#Export the VPC to use in the Compute Stack
+  exportEdrVpc:
+    Description: The edrVpc
+    Value:
+      Ref: edrVpc
+    Export:
+      Name: edrVpcExported
+
+#Export the DMZ (Public) Subnet1 to use in the Compute Stack
+  exportEdrDmzSubnet1:
+    Description: The edrDmzSubnet1
+    Value:
+      Ref: edrDmzSubnet1
+    Export:
+      Name: edrDmzSubnetExported1
+
+#Export the DMZ (Public) Subnet2 to use in the Compute Stack
+  exportEdrDmzSubnet2:
+    Description: The edrDmzSubnet2
+    Value:
+      Ref: edrDmzSubnet2
+    Export:
+      Name: edrDmzSubnetExported2
+
+#Export the edrWebSubnet1 (Private) Subnet to use in the Compute Stack
+  exportEdrWebSubnet1:
+    Description: The edrWebSubnet1
+    Value:
+      Ref: edrWebSubnet1
+    Export:
+      Name: edrWebSubnet1Exported
+
+#Export the edrWebSubnet2 (Private) Subnet to use in the Compute Stack
+  exportEdrWebSubnet2:
+    Description: The edrWebSubnet2
+    Value:
+      Ref: edrWebSubnet2
+    Export:
+      Name: edrWebSubnet2Exported
+
+#Export the edrDbsSubnet1 (Private) Subnet to use in the Compute Stack
+  exportedrDbsSubnet1:
+    Description: The edrDbsSubnet1
+    Value:
+      Ref: edrDbsSubnet1
+    Export:
+      Name: edrDbsSubnet1Exported
+
+#Export the edrDbsSubnet2 (Private) Subnet to use in the Compute Stack
+  exportedrDbsSubnet2:
+    Description: The edrDbsSubnet2
+    Value:
+      Ref: edrDbsSubnet2
+    Export:
+      Name: edrDbsSubnet2Exported
+
+#Export the edrEmptySubnet1 (Public) Subnet to use in the Compute Stack
+  exportedredrEmptySubnet1:
+    Description: The edrEmptySubnet1
+    Value:
+      Ref: edrEmptySubnet1
+    Export:
+      Name: edrEmptySubnet1Exported
+
+#Export the edrEmptySubnet2 (Public) Subnet to use in the Compute Stack
+  exportedredrEmptySubnet2:
+    Description: The edrEmptySubnet2
+    Value:
+      Ref: edrEmptySubnet2
+    Export:
+      Name: edrEmptySubnet2Exported
+
+#Export the EdR-DMZ-SG Security Group to use in the Compute Stack
+  exportedrDMZsg:
+    Description: The EdR-DMZ-SG Security Group
+    Value:
+      Ref: edrDmzSecurityGroup
+    Export:
+      Name: edrDMZsgExported
+
+#Export the EdR-Web-SG Security Group to use in the Compute Stack
+  exportedrWebsg:
+    Description: The EdR-Web-SG Security Group
+    Value:
+      Ref: edrWebSecurityGroup
+    Export:
+      Name: edrWebsgExported
+
+#Export the EdR-Dbs-SG Security Group to use in the Compute Stack
+  exportedrDbssg:
+    Description: The EdR-Dbs-SG Security Group
+    Value:
+      Ref: edrDbsSecurityGroup
+    Export:
+      Name: edrDbssgExported
+
+
+
